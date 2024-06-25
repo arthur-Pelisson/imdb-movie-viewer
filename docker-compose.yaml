@@ -1,0 +1,148 @@
+version: "3.7"
+services:
+  app:
+    build:
+      args:
+        user: luci
+        uid: 1000
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - PHP_IDE_CONFIG="serverName=laravelapi"
+    image: travellist
+    extra_hosts:
+            - "host.docker.internal:host-gateway"
+    container_name: travellist-app
+    restart: unless-stopped
+    working_dir: /var/www/
+    volumes:
+      - ./api:/var/www
+      - ./api/conf.d/xdebug.ini:/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+      - ./api/conf.d/error_reporting.ini:/usr/local/etc/php/conf.d/error_reporting.ini
+    networks:
+      mynet:
+        ipv4_address: 172.18.0.10
+  db:
+    image: mysql
+    container_name: travellist-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_USERNAME: ${DB_USERNAME}
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mysql
+    volumes:
+      - ./docker-compose/mysql:/docker-entrypoint-initdb.d
+      - ./docker-compose/mysql:/var/lib/mysql
+    networks:
+      mynet:
+        ipv4_address: 172.18.0.11
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name:
+      phpmyadmin
+    ports:
+      - 8080:80
+      # - "9003:9003"
+    links:
+      - db
+    environment:
+      MYSQL_USERNAME: "${DB_USERNAME}"
+      MYSQL_ROOT_PASSWORD: "${DB_PASSWORD}"
+      PMA_HOST: db
+    depends_on:
+      - db
+    networks:
+      mynet:
+        ipv4_address: 172.18.0.2
+
+    
+  react-client:
+    build:
+      context: ./client
+    ports:
+      - "3000:3000"
+    container_name: client
+    environment:
+      - WATCHPACK_POLLING=true
+    stdin_open: true
+    volumes:
+       - ./client:/client
+       - /client/node_modules
+    networks:
+      mynet:
+        ipv4_address: 172.18.0.3
+
+
+  nginx:
+    image: nginx:alpine
+    container_name: travellist-nginx
+    restart: always
+    ports:
+      - 8000:80
+    volumes:
+      - ./api:/var/www
+      - ./docker-compose/nginx:/etc/nginx/conf.d/
+      - logs:/var/log/nginx
+
+    depends_on:
+      - app
+    healthcheck:
+        test: curl --fail http://localhost || exit 1
+        interval: 60s
+        retries: 5
+        start_period: 20s
+        timeout: 10s
+    networks:
+      mynet:
+        ipv4_address: 172.18.0.4
+
+networks:
+  mynet:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.18.0.0/24
+
+
+volumes:
+ logs:
+#  crowdsec-db:
+#  crowdsec-config:
+  # crowdsec:
+  #   image: crowdsecurity/crowdsec:v1.3.2
+  #   restart: always
+  #   environment:
+  #     #this is the list of collections we want to install
+  #     #https://hub.crowdsec.net/author/crowdsecurity/collections/nginx
+  #     COLLECTIONS: "crowdsecurity/nginx"
+  #     GID: "${GID-1000}"
+  #   depends_on:
+  #     - 'nginx'
+  #   volumes:
+  #     - ./crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml
+  #     - logs:/var/log/nginx
+  #     - crowdsec-db:/var/lib/crowdsec/data/
+  #     - crowdsec-config:/etc/crowdsec/
+  #   networks:
+  #     mynet:
+  #       ipv4_address: 172.18.0.5
+
+  # dashboard:
+  #   #we're using a custom Dockerfile so that metabase pops with pre-configured dashboards
+  #   build: ./crowdsec/dashboard
+  #   restart: always
+  #   ports:
+  #     - 3300:3000
+  #   environment:
+  #     MB_DB_FILE: /data/metabase.db
+  #     MGID: "${GID-1000}"
+  #   depends_on:
+  #     - 'crowdsec'
+  #   volumes:
+  #     - crowdsec-db:/metabase-data/
+  #   networks:
+  #     mynet:
+  #       ipv4_address: 172.18.0.6

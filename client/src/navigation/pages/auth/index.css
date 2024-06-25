@@ -1,0 +1,8 @@
+.disabled {
+    background-color: gray;
+}
+
+.disabled:hover {
+    background-color: gray;
+    
+}
